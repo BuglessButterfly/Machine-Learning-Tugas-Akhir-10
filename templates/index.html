@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <title>Klasifikasi Spesies Bunga Iris</title>
+</head>
+
+<body>
+  <div class="wrap">
+
+    <h1 class="title">
+      <span>Klasifikasi Spesies Bunga Iris</span>
+      <span>Menggunakan Metode K-Nearest Neighbors</span>
+      <span>Berdasarkan Ukuran Sepal dan Petal</span>
+    </h1>
+
+    <div class="meta">
+      <b>K optimal:</b> {{ best_k }} |
+      <b>Akurasi test:</b> {{ final_acc }}
+      <br/>
+      <b>Kelas tersedia:</b>
+      {% if classes_ %}
+        {{ classes_ | join(", ") }}
+      {% else %}
+        -
+      {% endif %}
+    </div>
+
+    <!-- ==========================================================
+                      DROPDOWN PILIH BARIS DATASET
+                        (hanya autofill input)
+    ========================================================== -->
+    <div class="plot-box" style="margin-top:10px;">
+      <h3>Pilih Data dari Dataset Iris</h3>
+
+      {% if dataset_rows %}
+        <select id="datasetSelect" style="width:100%; padding:12px; border-radius:12px;">
+          <option value="">-- Pilih salah satu data --</option>
+          {% for r in dataset_rows %}
+            <option
+              value="{{ r.idx }}"
+              data-values='{{ r.vals | tojson | safe }}'
+            >
+              Data #{{ r.idx }} — {{ r.label_name }}
+            </option>
+          {% endfor %}
+        </select>
+      {% else %}
+        <div class="error">
+          Dataset kosong atau gagal dimuat.
+        </div>
+      {% endif %}
+
+      <small style="color:#a9b7d0;">
+        Pilih baris dataset → input otomatis terisi.  
+        Prediksi hanya jalan saat klik tombol Prediksi.
+      </small>
+    </div>
+
+    <!-- ==========================================================
+                           FORM INPUT MANUAL
+    ========================================================== -->
+    <form action="{{ url_for('predict') }}" method="POST" id="predictForm">
+      {% for f in feature_names %}
+        {% set key = feature_keys[loop.index0] %}
+        <label for="{{ key }}">{{ f }}</label>
+        <input
+          type="number"
+          step="any"
+          min="0" max="10"
+          id="{{ key }}"
+          name="{{ key }}"
+          required
+          placeholder="Masukkan nilai {{ f }}"
+          value="{% if input_values %}{{ input_values[loop.index0] }}{% endif %}"
+        >
+      {% endfor %}
+      <button type="submit" id="predictBtn">Prediksi</button>
+    </form>
+
+    <!-- ==========================================================
+         HASIL PREDIKSI + FOTO + GRAFIK INPUT (GRID 1x2)
+    ========================================================== -->
+    {% if pred_name %}
+      <div class="result">
+        <b>Hasil Prediksi:</b> {{ pred_name }}
+      </div>
+    {% endif %}
+
+    {% if pred_img_url or input_plot %}
+      <div class="grid-2col">
+
+        {% if pred_img_url %}
+          <div class="img-box">
+            <img src="{{ pred_img_url }}" alt="{{ pred_name }}">
+          </div>
+        {% endif %}
+
+        {% if input_plot %}
+          <div class="plot-box">
+            <h3>Grafik Input vs Rata-rata Semua Kelas</h3>
+            <img src="{{ input_plot }}" alt="Input vs Mean Plot">
+          </div>
+        {% endif %}
+
+      </div>
+    {% endif %}
+
+    <!-- ==========================================================
+                            (ELBOW CV + CM)
+    ========================================================== -->
+    {% if grid_plot %}
+      <div class="plot-box">
+        <h3>Elbow Method (CV) + Confusion Matrix</h3>
+        <img src="{{ grid_plot }}" alt="Grid Plot">
+      </div>
+    {% endif %}
+
+    <!-- ==========================================================
+                       CLASSIFICATION REPORT
+    ========================================================== -->
+    {% if report %}
+      <div class="plot-box">
+        <h3>Classification Report (Test Set)</h3>
+
+        <table class="report-table">
+          <thead>
+            <tr>
+              <th>Kelas</th>
+              <th>Precision</th>
+              <th>Recall</th>
+              <th>F1-Score</th>
+              <th>Support</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for cls, metrics in report.items() %}
+              {% if cls not in ["accuracy", "macro avg", "weighted avg"] %}
+                <tr>
+                  <td>{{ cls }}</td>
+                  <td>{{ "%.3f"|format(metrics["precision"]) }}</td>
+                  <td>{{ "%.3f"|format(metrics["recall"]) }}</td>
+                  <td>{{ "%.3f"|format(metrics["f1-score"]) }}</td>
+                  <td>{{ metrics["support"] }}</td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <div style="margin-top:8px;">
+          <b>Accuracy:</b> {{ "%.3f"|format(report["accuracy"]) }} <br/>
+          <b>Macro Avg F1:</b> {{ "%.3f"|format(report["macro avg"]["f1-score"]) }} |
+          <b>Weighted Avg F1:</b> {{ "%.3f"|format(report["weighted avg"]["f1-score"]) }}
+        </div>
+      </div>
+    {% endif %}
+
+    <!-- ==========================================================
+                                ERROR MESSAGE
+    ========================================================== -->
+    {% if error %}
+      <div class="error">
+        <b>Error:</b> {{ error }}
+      </div>
+    {% endif %}
+
+  </div>
+
+  <!-- ==========================================================
+                      JS AUTO-FILL INPUT SAJA
+  ========================================================== -->
+  <script>
+    const selectEl = document.getElementById("datasetSelect");
+    const featureKeys = {{ feature_keys | tojson | safe }};
+
+    if (selectEl) {
+      selectEl.addEventListener("change", () => {
+        const opt = selectEl.options[selectEl.selectedIndex];
+        const valuesStr = opt.getAttribute("data-values");
+
+        if (!valuesStr) {
+          featureKeys.forEach((k) => {
+            const input = document.getElementById(k);
+            if (input) input.value = "";
+          });
+          return;
+        }
+
+        const vals = JSON.parse(valuesStr);
+
+        featureKeys.forEach((k, i) => {
+          const input = document.getElementById(k);
+          if (input) input.value = vals[i];
+        });
+      });
+    }
+  </script>
+</body>
+</html>
